@@ -1,5 +1,8 @@
 package userchat
 
 type Config struct {
-	Port int
+	CookieDomain     string
+	CorsAllowOrigins []string
+	JWTSecret        string
+	Port             int
 }
