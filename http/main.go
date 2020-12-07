@@ -3,9 +3,18 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"time"
+
+	"github.com/googollee/go-socket.io/engineio/transport/polling"
+
+	"github.com/googollee/go-socket.io/engineio"
+	"github.com/googollee/go-socket.io/engineio/transport"
+	"github.com/googollee/go-socket.io/engineio/transport/websocket"
 
 	"github.com/dgrijalva/jwt-go"
+	socketio "github.com/googollee/go-socket.io"
 
 	. "github.com/cyc-ttn/gorouter"
 
@@ -174,6 +183,84 @@ func NewServer(c *Config) *Server {
 
 	return s
 }
+func (s *Server) Start() error {
+	wsServer, err := s.GetWSServer()
+	if err != nil {
+		return err
+	}
+	go wsServer.Serve()
+	defer wsServer.Close()
+
+	http.Handle("/socket.io/", wsServer)
+	http.Handle("/", s)
+
+	log.Println("Serving at localhost:" + fmt.Sprintf(":%d", s.C.Port))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", s.C.Port), nil))
+	return nil
+}
+
+// I couldn't actually get the websocket server to work
+// The package I was attempting to use that implements it in Golang
+// had a few different versions, and their examples were using an older version
+// It also appears to have some weird encoding issue with its JSON
+// Anyway this doesn't work
+func (s *Server) GetWSServer() (*socketio.Server, error) {
+	allowOrigin := func(r *http.Request) bool {
+		return true
+	}
+	server, err := socketio.NewServer(&engineio.Options{
+		Transports: []transport.Transport{
+			&polling.Transport{
+				Client: &http.Client{
+					Timeout: time.Minute,
+				},
+				CheckOrigin: allowOrigin,
+			},
+			&websocket.Transport{
+				CheckOrigin: allowOrigin,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// All of this server code is taken from their examples, which is a basic
+	// chat example without room
+	server.OnConnect("/", func(s socketio.Conn) error {
+		s.SetContext("")
+		fmt.Println("connected:", s.ID())
+		return nil
+	})
+
+	server.OnEvent("/", "notice", func(s socketio.Conn, msg string) {
+		fmt.Println("notice:", msg)
+		s.Emit("reply", "have "+msg)
+	})
+
+	server.OnEvent("/chat", "msg", func(s socketio.Conn, msg string) string {
+		fmt.Println("/chat msg", msg)
+		s.SetContext(msg)
+		return "recv " + msg
+	})
+
+	server.OnEvent("/", "bye", func(s socketio.Conn) string {
+		last := s.Context().(string)
+		s.Emit("bye", last)
+		s.Close()
+		return last
+	})
+
+	server.OnError("/", func(s socketio.Conn, e error) {
+		fmt.Println("meet error:", e)
+	})
+
+	server.OnDisconnect("/", func(s socketio.Conn, reason string) {
+		fmt.Println("closed", reason)
+	})
+
+	return server, nil
+}
 
 func main() {
 	conf := &Config{
@@ -184,8 +271,9 @@ func main() {
 		Port:      4949,
 	}
 	s := NewServer(conf)
-	fmt.Printf("Listening on port %d\n", conf.Port)
-	http.ListenAndServe(fmt.Sprintf(":%d", conf.Port), s)
+	if err := s.Start(); err != nil {
+		fmt.Println("Error starting server", err)
+	}
 }
 
 func getPing(ctx *CustomRouteContext) {

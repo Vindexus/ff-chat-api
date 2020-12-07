@@ -42,21 +42,6 @@ func postLogin(c *CustomRouteContext) {
 	}
 
 	jwt, err := SignJWT(c.C.JWTSecret, user.Id)
-	/*	// We will also supply the JWT as a cookie
-		// so that it can be used to authentication requests
-		// from the browser that won't set the Authorization header
-		// EG: iframes that preview campaigns
-		expire := time.Now().Add(JWTDuration)
-		// Set the cookie for the requesting domain (the app where the login is coming from)
-		cookie2 := http.Cookie{
-			Name:     "jwt",
-			Value:    jwt,
-			Expires:  expire,
-			Domain:   c.C.CookieDomain,
-			HttpOnly: true,
-		}
-		http.SetCookie(c.W, &cookie2)*/
-
 	c.JSON(http.StatusOK, M{
 		"jwt": jwt,
 	})
